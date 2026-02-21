@@ -1,0 +1,8 @@
+{
+  "name": "zktoken-circuits",
+  "version": "1.0.0",
+  "description": "ZkToken ZK circuits",
+  "dependencies": {
+    "circomlib": "^2.0.5"
+  }
+}
