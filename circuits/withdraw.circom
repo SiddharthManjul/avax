@@ -1,70 +1,75 @@
 pragma circom 2.2.2;
 
-include "../node_modules/circomlib/circuits/poseidon.circom";
-include "../node_modules/circomlib/circuits/babyjub.circom";
-include "../node_modules/circomlib/circuits/bitify.circom";
+include "circomlib/circuits/poseidon.circom";
+include "circomlib/circuits/babyjub.circom";
 include "lib/merkle_tree.circom";
 include "lib/pedersen.circom";
 include "lib/nullifier.circom";
 include "lib/range_proof.circom";
 
-// Withdraw circuit
-// Similar to PrivateTransfer but:
-//   - amount is a PUBLIC input (must be revealed to release ERC20)
-//   - one output note (change back to sender)
-//   - no recipient output note
 //
-// Proves:
-//   1. Sender owns a valid note in the Merkle tree
-//   2. Input Pedersen commitment is correctly formed
-//   3. Nullifier is correctly derived
-//   4. Withdraw amount + change amount == input amount
-//   5. Change Pedersen commitment is correctly formed
-//   6. Change note commitment is correctly formed
-//   7. Amounts fit in 64 bits
+// Withdraw
+//
+// Proves a valid private withdrawal:
+//   - sender owns a note committed in the Merkle tree
+//   - the consumed note's Pedersen commitment is correctly formed
+//   - the nullifier is correctly derived (prevents double-spend)
+//   - amount (public) + change_amount == amount_in (conservation)
+//   - blinding_in == change_blinding (full blinding goes to change note)
+//   - change note commitment is correctly formed
+//   - both amounts are in 64-bit range
+//
+// The withdrawal amount is PUBLIC (required to release the correct ERC20 amount).
+// This breaks the link between depositor and withdrawer without revealing
+// how many prior transfers occurred in between.
+//
+// On-chain Pedersen balance check (C_in == C_withdraw + C_change) is handled
+// via the ecAdd precompile — NOT in this circuit.
+//
 template Withdraw(depth) {
+
     // -----------------------------------------------------------------------
-    // Public inputs
+    // Public inputs (visible on-chain)
     // -----------------------------------------------------------------------
-    signal input merkle_root;
-    signal input nullifier_hash;
-    signal input amount;                 // withdrawal amount (revealed on-chain)
-    signal input input_pedersen_x;
-    signal input input_pedersen_y;
-    signal input change_pedersen_x;
-    signal input change_pedersen_y;
-    signal input change_commitment;      // change note commitment
+    signal input merkle_root;         // Merkle tree root used in proof
+    signal input nullifier_hash;      // nullifier of the consumed note
+    signal input amount;              // withdrawal amount (revealed to release ERC20)
+    signal input input_pedersen_x;    // x-coord of input Pedersen commitment
+    signal input input_pedersen_y;    // y-coord of input Pedersen commitment
+    signal input change_pedersen_x;   // x-coord of change Pedersen commitment
+    signal input change_pedersen_y;   // y-coord of change Pedersen commitment
+    signal input change_commitment;   // change note commitment
 
     // -----------------------------------------------------------------------
     // Private inputs — input note
     // -----------------------------------------------------------------------
-    signal input amount_in;
-    signal input blinding_in;
-    signal input secret;
-    signal input nullifier_preimage;
-    signal input owner_private_key;
-    signal input leaf_index;
-    signal input merkle_path[depth];
-    signal input path_indices[depth];
+    signal input amount_in;              // uint64 total amount in the note
+    signal input blinding_in;            // Pedersen blinding factor
+    signal input secret;                 // 31-byte secret known only to owner
+    signal input nullifier_preimage;     // 31-byte value used to derive nullifier
+    signal input owner_private_key;      // sender's Baby Jubjub private key
+    signal input leaf_index;             // position of note in Merkle tree
+    signal input merkle_path[depth];     // sibling hashes along the Merkle path
+    signal input path_indices[depth];    // 0=left, 1=right at each level
 
     // -----------------------------------------------------------------------
-    // Private inputs — change note
+    // Private inputs — change note (remainder after withdrawal)
     // -----------------------------------------------------------------------
-    signal input change_amount;
-    signal input change_blinding;
-    signal input secret_change;
-    signal input nullifier_preimage_change;
-    signal input owner_pk_change_x;
-    signal input owner_pk_change_y;
+    signal input change_amount;              // uint64 change back to sender
+    signal input change_blinding;            // Pedersen blinding for change note
+    signal input secret_change;              // change note secret
+    signal input nullifier_preimage_change;  // change note nullifier preimage
+    signal input owner_pk_change_x;          // sender's Baby Jubjub pk.x (change owner)
 
     // -----------------------------------------------------------------------
-    // 1. Ownership
+    // 1. Ownership: derive owner public key from private key
     // -----------------------------------------------------------------------
     component ownerPk = BabyPbk();
     ownerPk.in <== owner_private_key;
 
     // -----------------------------------------------------------------------
     // 2. Input Pedersen commitment correctness
+    //    Proves: input_pedersen = amount_in * G + blinding_in * H
     // -----------------------------------------------------------------------
     component pedersenIn = PedersenCommitment();
     pedersenIn.value        <== amount_in;
@@ -73,7 +78,8 @@ template Withdraw(depth) {
     pedersenIn.commitment_y <== input_pedersen_y;
 
     // -----------------------------------------------------------------------
-    // 3. Note commitment reconstruction & Merkle inclusion
+    // 3. Note commitment reconstruction + Merkle inclusion proof
+    //    note_commitment = Poseidon(ped.x, ped.y, secret, nullifier_preimage, owner_pk.x)
     // -----------------------------------------------------------------------
     component noteHasher = Poseidon(5);
     noteHasher.inputs[0] <== input_pedersen_x;
@@ -83,8 +89,7 @@ template Withdraw(depth) {
     noteHasher.inputs[4] <== ownerPk.Ax;
 
     component merkleProof = MerkleTreeInclusionProof(depth);
-    merkleProof.leaf       <== noteHasher.out;
-    merkleProof.leaf_index <== leaf_index;
+    merkleProof.leaf <== noteHasher.out;
     for (var i = 0; i < depth; i++) {
         merkleProof.path_elements[i] <== merkle_path[i];
         merkleProof.path_indices[i]  <== path_indices[i];
@@ -93,6 +98,7 @@ template Withdraw(depth) {
 
     // -----------------------------------------------------------------------
     // 4. Nullifier derivation
+    //    nullifier = Poseidon(nullifier_preimage, secret, leaf_index)
     // -----------------------------------------------------------------------
     component nullifierComp = NullifierDeriver();
     nullifierComp.nullifier_preimage <== nullifier_preimage;
@@ -106,13 +112,17 @@ template Withdraw(depth) {
     amount_in === amount + change_amount;
 
     // -----------------------------------------------------------------------
-    // 6. Blinding conservation
+    // 6. Blinding conservation: blinding_in == change_blinding
+    //    For a withdrawal, the withdrawn portion has no change note on the
+    //    prover side — the ERC20 transfer is the "output". The full blinding
+    //    factor is assigned to the change note so the on-chain ecAdd check
+    //    C_in == C_withdraw_pedersen + C_change passes.
+    //    (C_withdraw_pedersen is computed on-chain for the revealed amount.)
     // -----------------------------------------------------------------------
-    blinding_in === change_blinding; // withdraw takes full blinding; change gets remainder 0
-    // NOTE: if change_amount == 0 this is a full withdrawal; change note is a zero-value note
+    blinding_in === change_blinding;
 
     // -----------------------------------------------------------------------
-    // 7. Range proofs
+    // 7. Range proofs: both amounts must fit in 64 bits
     // -----------------------------------------------------------------------
     component rangeWithdraw = RangeProof(64);
     rangeWithdraw.value <== amount;
@@ -122,6 +132,7 @@ template Withdraw(depth) {
 
     // -----------------------------------------------------------------------
     // 8. Change Pedersen commitment correctness
+    //    Proves: change_pedersen = change_amount * G + change_blinding * H
     // -----------------------------------------------------------------------
     component pedersenChange = PedersenCommitment();
     pedersenChange.value        <== change_amount;
@@ -131,6 +142,8 @@ template Withdraw(depth) {
 
     // -----------------------------------------------------------------------
     // 9. Change note commitment correctness
+    //    change_commitment = Poseidon(change_ped.x, change_ped.y, secret_change,
+    //                                  nullifier_preimage_change, owner_pk_change.x)
     // -----------------------------------------------------------------------
     component noteChange = Poseidon(5);
     noteChange.inputs[0] <== change_pedersen_x;
