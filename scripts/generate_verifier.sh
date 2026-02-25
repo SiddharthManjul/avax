@@ -24,6 +24,14 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SETUP_DIR="$ROOT/circuits/trusted_setup"
 SRC_DIR="$ROOT/src"
 
+# Ensure bun and npm global bins are in PATH
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+# Resolve snarkjs binary
+if command -v snarkjs &>/dev/null; then SNARKJS="snarkjs"
+else SNARKJS="npx snarkjs"
+fi
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
 
@@ -45,8 +53,7 @@ fi
 # Pre-flight
 # ---------------------------------------------------------------------------
 
-command -v npx &>/dev/null || die "npx not found. Install Node.js >= 18."
-npx snarkjs --version &>/dev/null || die "snarkjs not found. Run: npm install -g snarkjs"
+command -v ${SNARKJS%% *} &>/dev/null || die "snarkjs not found.\n  Install via: bun i -g snarkjs  OR  npm install -g snarkjs"
 
 mkdir -p "$SRC_DIR/interfaces"
 
@@ -60,17 +67,16 @@ for circuit in "${CIRCUITS[@]}"; do
   ZKEY="$SETUP_DIR/${circuit}_final.zkey"
   [[ -f "$ZKEY" ]] || die "Missing zkey: $ZKEY\n  Run setup_ceremony.sh first."
 
-  CAPITAL="${circuit^}"
+  CAPITAL=$(echo "$circuit" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
   SOL="$SRC_DIR/Groth16Verifier${CAPITAL}.sol"
 
   log "  $circuit → $SOL"
-  npx snarkjs zkey export solidityverifier "$ZKEY" "$SOL" 2>&1 | tail -3
+  $SNARKJS zkey export solidityverifier "$ZKEY" "$SOL" 2>&1 | tail -2
 
-  # Fix pragma to match foundry.toml (0.8.24)
-  sed -i.bak 's/pragma solidity .*/pragma solidity ^0.8.20;/' "$SOL" && rm -f "${SOL}.bak"
-
+  # Fix pragma (macOS sed requires empty string after -i)
+  sed -i '' 's/pragma solidity .*/pragma solidity ^0.8.20;/' "$SOL"
   # Rename contract to avoid collision (two verifiers, one Solidity project)
-  sed -i.bak "s/contract Groth16Verifier /contract Groth16Verifier${CAPITAL} /" "$SOL" && rm -f "${SOL}.bak"
+  sed -i '' "s/contract Groth16Verifier /contract Groth16Verifier${CAPITAL} /" "$SOL"
 
   ok "  $SOL (contract: Groth16Verifier${CAPITAL})"
 done
@@ -78,7 +84,7 @@ done
 echo ""
 log "Done. Verifier files written to src/:"
 for circuit in "${CIRCUITS[@]}"; do
-  CAPITAL="${circuit^}"
+  CAPITAL=$(echo "$circuit" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
   echo "    src/Groth16Verifier${CAPITAL}.sol"
 done
 echo ""
