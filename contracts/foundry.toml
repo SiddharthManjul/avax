@@ -1,6 +1,39 @@
 [profile.default]
-src = "src"
-out = "out"
-libs = ["lib"]
+src     = "src"
+out     = "out"
+libs    = ["lib"]
+test    = "test"
+script  = "script"
+cache   = true
 
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+# Solidity compiler
+solc            = "0.8.24"
+optimizer       = true
+optimizer_runs  = 200
+# --------------------------------------------------------------------------
+# Remappings
+# --------------------------------------------------------------------------
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+]
+
+# --------------------------------------------------------------------------
+# RPC endpoints (use with --rpc-url <name>)
+# --------------------------------------------------------------------------
+[rpc_endpoints]
+anvil     = "http://127.0.0.1:8545"
+fuji      = "https://api.avax-test.network/ext/bc/C/rpc"
+avalanche = "https://api.avax.network/ext/bc/C/rpc"
+
+# --------------------------------------------------------------------------
+# Block explorer verification
+# --------------------------------------------------------------------------
+[etherscan]
+fuji = { key = "${SNOWTRACE_API_KEY}", url = "https://api-testnet.snowtrace.io/api", chain = 43113 }
+avalanche = { key = "${SNOWTRACE_API_KEY}", url = "https://api.snowtrace.io/api", chain = 43114 }
+
+# --------------------------------------------------------------------------
+# Fuzz testing
+# --------------------------------------------------------------------------
+[fuzz]
+runs = 256
