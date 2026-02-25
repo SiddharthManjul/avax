@@ -45,10 +45,15 @@ CIRCUITS_BUILD="$ROOT/circuits/build"
 SETUP_DIR="$ROOT/circuits/trusted_setup"
 SRC_DIR="$ROOT/src"
 
-PTAU_FILE="$SETUP_DIR/powersOfTau28_hez_final_15.ptau"
-PTAU_URL="https://hermez.s3-eu-west-1.amazonaws.com/powersOfTau28_hez_final_15.ptau"
-# Hermez ptau SHA-256 (publicly verifiable):
-PTAU_SHA256="77c5e5c9320764bc3ee17032c171f9851e37bd3587e057ec6ca70468fc108deb"
+# Powers of Tau — generated locally (snarkjs powersoftau new)
+# Power 16 supports up to 2^16 = 65,536 constraints per circuit.
+# transfer circuit: 33,369 non-linear constraints × 2 = 66,738 → needs 2^17? Actually
+# snarkjs checks 2*constraints <= 2^power, so 33369*2=66738 > 2^15=32768, needs 2^16.
+# Both circuits fit in 2^16 (65,536 > 33,369 and 65,536 > 20,858).
+PTAU_POWER=16
+PTAU_FILE="$SETUP_DIR/pot${PTAU_POWER}_final.ptau"
+PTAU_0000="$SETUP_DIR/pot${PTAU_POWER}_0000.ptau"
+PTAU_0001="$SETUP_DIR/pot${PTAU_POWER}_0001.ptau"
 
 CIRCUITS=("transfer" "withdraw")
 
@@ -144,23 +149,34 @@ echo ""
 # 1. Powers of Tau (Universal, curve-specific, circuit-agnostic)
 # ---------------------------------------------------------------------------
 
-log "Step 1 — Powers of Tau (bn128, 2^15)"
+log "Step 1 — Powers of Tau (bn128, 2^${PTAU_POWER}) — generated locally"
 
-if need_step "$PTAU_FILE"; then
-  log "Downloading ptau from Hermez (~50 MB)..."
-  if command -v curl &>/dev/null; then
-    curl -L --progress-bar -o "$PTAU_FILE" "$PTAU_URL"
-  elif command -v wget &>/dev/null; then
-    wget --show-progress -O "$PTAU_FILE" "$PTAU_URL"
-  else
-    die "Neither curl nor wget found. Install one and retry."
-  fi
-  ok "Downloaded: $PTAU_FILE"
+if need_step "$PTAU_0000"; then
+  log "  snarkjs powersoftau new bn128 $PTAU_POWER ..."
+  $SNARKJS powersoftau new bn128 "$PTAU_POWER" "$PTAU_0000" -v 2>&1 | tail -4
+  ok "  Created $PTAU_0000"
 else
-  skip "$PTAU_FILE"
+  skip "  $PTAU_0000"
 fi
 
-verify_sha256 "$PTAU_FILE" "$PTAU_SHA256"
+if need_step "$PTAU_0001"; then
+  log "  Contributing randomness to ptau..."
+  ENTROPY=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom 2>/dev/null | head -c 64 || date +%s%N)
+  echo "$ENTROPY" | $SNARKJS powersoftau contribute "$PTAU_0000" "$PTAU_0001" \
+    --name="zktoken-dev-$(date +%Y%m%d)" -v 2>&1 | tail -4
+  ok "  Created $PTAU_0001"
+else
+  skip "  $PTAU_0001"
+fi
+
+if need_step "$PTAU_FILE"; then
+  log "  Preparing phase 2 ptau..."
+  $SNARKJS pt2 "$PTAU_0001" "$PTAU_FILE" -v 2>&1 | tail -4
+  ok "  Created $PTAU_FILE"
+else
+  skip "  $PTAU_FILE"
+fi
+
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -189,16 +205,11 @@ for circuit in "${CIRCUITS[@]}"; do
   #   snarkjs zkey contribute <prev.zkey> <next.zkey> --name="Contributor Name"
   if need_step "$ZKEY_FINAL"; then
     log "  Contributing randomness → ${circuit}_final.zkey"
-    # Use /dev/urandom entropy for the contribution
-    ENTROPY=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom 2>/dev/null | head -c 64 || true)
-    if [[ -z "$ENTROPY" ]]; then
-      ENTROPY="zktoken-dev-setup-$(date +%s)-$$"
-      warn "Using timestamp entropy (dev only — NOT suitable for production)"
-    fi
+    ENTROPY=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom 2>/dev/null | head -c 64 || date +%s%N)
     echo "$ENTROPY" | $SNARKJS zkey contribute \
       "$ZKEY_0" "$ZKEY_FINAL" \
       --name="zktoken-dev-${circuit}-$(date +%Y%m%d)" \
-      -v 2>&1 | (grep -E "(contribution|hash|reading)" || true)
+      -v 2>&1 | tail -4
     ok "  Created ${circuit}_final.zkey"
   else
     skip "  ${circuit}_final.zkey"
@@ -228,21 +239,20 @@ done
 
 log "Step 4 — Generating Solidity verifier contracts → src/"
 
-for circuit in "${CIRCUITS[@]}"; do
+for circuit in "transfer" "withdraw"; do
   ZKEY_FINAL="$SETUP_DIR/${circuit}_final.zkey"
-  # Capitalise first letter for Solidity contract name
-  CAPITAL="${circuit^}"
+  # Capitalise first letter (POSIX-compatible, no bash ${x^} which fails on zsh)
+  CAPITAL=$(echo "$circuit" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
   SOL_FILE="$SRC_DIR/Groth16Verifier${CAPITAL}.sol"
 
   if need_step "$SOL_FILE"; then
     log "  Exporting ${circuit} → $SOL_FILE"
-    $SNARKJS zkey export solidityverifier "$ZKEY_FINAL" "$SOL_FILE"
+    $SNARKJS zkey export solidityverifier "$ZKEY_FINAL" "$SOL_FILE" 2>&1 | tail -2
 
-    # Patch the auto-generated pragma to match our foundry.toml Solidity 0.8.24
-    sed -i.bak 's/pragma solidity .*/pragma solidity ^0.8.20;/' "$SOL_FILE" && rm -f "${SOL_FILE}.bak"
-
-    # Rename the contract to avoid collision when both are compiled together
-    sed -i.bak "s/contract Groth16Verifier /contract Groth16Verifier${CAPITAL} /" "$SOL_FILE" && rm -f "${SOL_FILE}.bak"
+    # Fix pragma (macOS sed requires empty string after -i)
+    sed -i '' 's/pragma solidity .*/pragma solidity ^0.8.20;/' "$SOL_FILE"
+    # Rename contract to avoid collision when both verifiers compile together
+    sed -i '' "s/contract Groth16Verifier /contract Groth16Verifier${CAPITAL} /" "$SOL_FILE"
 
     ok "  $SOL_FILE"
   else
