@@ -3,11 +3,12 @@
 import { useZkToken } from "@/hooks/use-zktoken";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNotes } from "@/hooks/use-notes";
+import { TokenBalances } from "@/components/token-balances";
 import Link from "next/link";
 
 export default function DashboardPage() {
   const { ready, error } = useZkToken();
-  const { address, chainId } = useWallet();
+  const { address, chainId, networkName, wrongNetwork, switchToExpectedNetwork } = useWallet();
   const { unspent } = useNotes();
 
   return (
@@ -47,7 +48,7 @@ export default function DashboardPage() {
           </p>
           {chainId && (
             <p className="mt-0.5 text-xs text-zinc-600">
-              Chain ID: {chainId.toString()}
+              {networkName ?? `Chain ${chainId}`}
             </p>
           )}
         </div>
@@ -59,6 +60,24 @@ export default function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* Wrong network warning */}
+      {wrongNetwork && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 flex items-center justify-between">
+          <p className="text-sm text-yellow-400">
+            Wrong network — please switch to {process.env.NEXT_PUBLIC_CHAIN_ID === "43114" ? "Avalanche C-Chain" : "Avalanche Fuji"}.
+          </p>
+          <button
+            onClick={switchToExpectedNetwork}
+            className="rounded bg-yellow-600 px-3 py-1 text-sm font-medium text-white hover:bg-yellow-500 transition-colors"
+          >
+            Switch Network
+          </button>
+        </div>
+      )}
+
+      {/* Token balances */}
+      <TokenBalances />
 
       {/* Quick actions */}
       <div>
