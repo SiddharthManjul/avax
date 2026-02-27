@@ -1,4 +1,4 @@
-# ZkToken — Private Token Transfer System on Avalanche C-Chain
+# Shroud Network — Private Token Transfer System on Avalanche C-Chain
 
 ## Project Summary
 
