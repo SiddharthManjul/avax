@@ -30,8 +30,8 @@ avalanche = "https://api.avax.network/ext/bc/C/rpc"
 # Block explorer verification
 # --------------------------------------------------------------------------
 [etherscan]
-fuji = { key = "${SNOWTRACE_API_KEY}", url = "https://api-testnet.snowtrace.io/api", chain = 43113 }
-avalanche = { key = "${SNOWTRACE_API_KEY}", url = "https://api.snowtrace.io/api", chain = 43114 }
+fuji = { key = "verifyContract", url = "https://api.routescan.io/v2/network/testnet/evm/43113/etherscan", chain = 43113 }
+avalanche = { key = "verifyContract", url = "https://api.routescan.io/v2/network/mainnet/evm/43114/etherscan", chain = 43114 }
 
 # --------------------------------------------------------------------------
 # Fuzz testing
