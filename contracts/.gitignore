@@ -1,0 +1,7 @@
+# Environment (secrets)
+.env
+
+# Foundry build artifacts
+cache/
+out/
+broadcast/
