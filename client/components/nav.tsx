@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletButton } from "./wallet-button";
 
+// Dashboard is the root of the app — user lands here after wallet connect.
+// No need to link to it; just provide the other app sections.
 const links = [
-  { href: "/", label: "Dashboard" },
   { href: "/deposit", label: "Deposit" },
   { href: "/transfer", label: "Transfer" },
   { href: "/withdraw", label: "Withdraw" },
@@ -20,8 +21,8 @@ export function Nav() {
     <nav className="border-b border-[#2a2a2a] bg-black">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
-          <Link href="/" className="text-lg font-bold text-[#ff1a1a] tracking-wide">
-            ZkToken
+          <Link href="/dashboard" className="text-lg font-bold text-[#ff1a1a] tracking-wide">
+            Shroud Network
           </Link>
           <div className="flex gap-1">
             {links.map(({ href, label }) => (
