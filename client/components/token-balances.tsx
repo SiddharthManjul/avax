@@ -33,14 +33,16 @@ export function TokenBalances() {
     async function fetchBalances() {
       setLoading(true);
       try {
-        // Native AVAX balance
         const rawBalance = await provider!.getBalance(address!);
         if (!cancelled) setAvaxBalance(formatEther(rawBalance));
 
-        // ERC20 token balance (if configured)
         const tokenAddr = process.env.NEXT_PUBLIC_TOKEN_ADDRESS;
         if (tokenAddr && tokenAddr.length > 0) {
-          const erc20 = new Contract(tokenAddr, TEST_TOKEN_ABI, provider as unknown as BrowserProvider);
+          const erc20 = new Contract(
+            tokenAddr,
+            TEST_TOKEN_ABI,
+            provider as unknown as BrowserProvider
+          );
           const [balance, decimals, symbol] = await Promise.all([
             erc20.balanceOf(address),
             erc20.decimals(),
@@ -63,58 +65,66 @@ export function TokenBalances() {
     }
 
     fetchBalances();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [address, provider]);
 
   if (!address) return null;
 
+  const cardClass = "rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-4";
+  const labelClass = "text-sm text-[#888888]";
+  const valueClass = "mt-1 text-lg font-medium text-[#ff1a1a] font-mono";
+  const dimClass = "text-[#444444]";
+
   return (
     <div className="grid gap-4 sm:grid-cols-3">
       {/* AVAX balance */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-        <p className="text-sm text-zinc-500">AVAX Balance</p>
-        <p className="mt-1 text-lg font-medium text-white font-mono">
+      <div className={cardClass}>
+        <p className={labelClass}>AVAX Balance</p>
+        <p className={valueClass}>
           {loading && avaxBalance === null ? (
-            <span className="text-zinc-600">Loading...</span>
+            <span className={dimClass}>Loading...</span>
           ) : avaxBalance !== null ? (
             `${Number(avaxBalance).toFixed(4)} AVAX`
           ) : (
-            <span className="text-zinc-600">—</span>
+            <span className={dimClass}>—</span>
           )}
         </p>
       </div>
 
       {/* ERC20 token balance */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-        <p className="text-sm text-zinc-500">
+      <div className={cardClass}>
+        <p className={labelClass}>
           {tokenInfo ? tokenInfo.symbol : "Token"} Balance
         </p>
-        <p className="mt-1 text-lg font-medium text-white font-mono">
+        <p className={valueClass}>
           {loading && !tokenInfo ? (
-            <span className="text-zinc-600">Loading...</span>
+            <span className={dimClass}>Loading...</span>
           ) : tokenInfo ? (
             `${Number(tokenInfo.balance).toFixed(2)} ${tokenInfo.symbol}`
           ) : (
-            <span className="text-zinc-600">Not configured</span>
+            <span className={dimClass}>Not configured</span>
           )}
         </p>
         {tokenInfo && (
-          <p className="mt-0.5 text-xs text-zinc-600 font-mono truncate">
+          <p className="mt-0.5 text-xs text-[#666666] font-mono truncate">
             {tokenInfo.address}
           </p>
         )}
       </div>
 
       {/* Shielded balance */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-        <p className="text-sm text-zinc-500">Shielded SRD</p>
-        <p className="mt-1 text-lg font-medium text-white font-mono">
-          {shieldedTotal > 0n
-            ? `${shieldedTotal.toString()} zkSRD`
-            : <span className="text-zinc-600">0 zkSRD</span>
-          }
+      <div className={cardClass}>
+        <p className={labelClass}>Shielded SRD</p>
+        <p className={valueClass}>
+          {shieldedTotal > 0n ? (
+            `${shieldedTotal.toString()} zkSRD`
+          ) : (
+            <span className={dimClass}>0 zkSRD</span>
+          )}
         </p>
-        <p className="mt-0.5 text-xs text-zinc-600">
+        <p className="mt-0.5 text-xs text-[#666666]">
           {unspent.length} unspent note{unspent.length !== 1 ? "s" : ""}
         </p>
       </div>
