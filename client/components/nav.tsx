@@ -17,10 +17,10 @@ export function Nav() {
   const pathname = usePathname();
 
   return (
-    <nav className="border-b border-zinc-800 bg-zinc-950">
+    <nav className="border-b border-[#2a2a2a] bg-black">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
-          <Link href="/" className="text-lg font-bold text-white">
+          <Link href="/" className="text-lg font-bold text-[#ff1a1a] tracking-wide">
             ZkToken
           </Link>
           <div className="flex gap-1">
@@ -28,10 +28,10 @@ export function Nav() {
               <Link
                 key={href}
                 href={href}
-                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-200 ${
                   pathname === href
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                    ? "bg-[#ff1a1a]/10 text-[#ff1a1a] border border-[#ff1a1a]/40"
+                    : "text-[#888888] hover:text-[#ff1a1a] hover:bg-[#ff1a1a]/5"
                 }`}
               >
                 {label}
