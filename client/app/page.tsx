@@ -14,51 +14,51 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-zinc-400">
+        <h1 className="text-3xl font-bold text-[#ff1a1a] tracking-tight">Dashboard</h1>
+        <p className="mt-1 text-[#888888]">
           ZkToken shielded pool — private token transfers on Avalanche
         </p>
       </div>
 
       {/* Status cards */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-sm text-zinc-500">WASM Status</p>
+        <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-4">
+          <p className="text-sm text-[#888888]">WASM Status</p>
           <p className="mt-1 text-lg font-medium">
             {error ? (
-              <span className="text-red-400">Error</span>
+              <span className="text-[#ff1a1a]">Error</span>
             ) : ready ? (
-              <span className="text-green-400">Ready</span>
+              <span className="text-[#ff1a1a]">Ready</span>
             ) : (
-              <span className="text-yellow-400">Loading...</span>
+              <span className="text-yellow-500">Loading...</span>
             )}
           </p>
         </div>
 
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-sm text-zinc-500">Wallet</p>
+        <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-4">
+          <p className="text-sm text-[#888888]">Wallet</p>
           <p className="mt-1 text-lg font-medium font-mono truncate">
             {address ? (
-              <span className="text-white">
+              <span className="text-[#ff1a1a]">
                 {address.slice(0, 6)}...{address.slice(-4)}
               </span>
             ) : (
-              <span className="text-zinc-600">Not connected</span>
+              <span className="text-[#444444]">Not connected</span>
             )}
           </p>
           {chainId && (
-            <p className="mt-0.5 text-xs text-zinc-600">
+            <p className="mt-0.5 text-xs text-[#666666]">
               {networkName ?? `Chain ${chainId}`}
             </p>
           )}
         </div>
 
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-sm text-zinc-500">Shielded Notes</p>
-          <p className="mt-1 text-lg font-medium text-white">
+        <div className="rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-4">
+          <p className="text-sm text-[#888888]">Shielded Notes</p>
+          <p className="mt-1 text-lg font-medium text-[#ff1a1a]">
             {unspent.length} unspent
           </p>
-          <p className="mt-0.5 text-sm font-mono text-zinc-400">
+          <p className="mt-0.5 text-sm font-mono text-[#888888]">
             {unspent.reduce((s, n) => s + n.amount, 0n).toString()} zkSRD
           </p>
         </div>
@@ -68,11 +68,15 @@ export default function DashboardPage() {
       {wrongNetwork && (
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 flex items-center justify-between">
           <p className="text-sm text-yellow-400">
-            Wrong network — please switch to {process.env.NEXT_PUBLIC_CHAIN_ID === "43114" ? "Avalanche C-Chain" : "Avalanche Fuji"}.
+            Wrong network — please switch to{" "}
+            {process.env.NEXT_PUBLIC_CHAIN_ID === "43114"
+              ? "Avalanche C-Chain"
+              : "Avalanche Fuji"}
+            .
           </p>
           <button
             onClick={switchToExpectedNetwork}
-            className="rounded bg-yellow-600 px-3 py-1 text-sm font-medium text-white hover:bg-yellow-500 transition-colors"
+            className="rounded-lg bg-[#b0b0b0] px-3 py-1.5 text-sm font-medium text-black hover:bg-[#ff1a1a] hover:text-black transition-colors duration-200 border border-[#b0b0b0] hover:border-[#ff1a1a]"
           >
             Switch Network
           </button>
@@ -84,35 +88,34 @@ export default function DashboardPage() {
 
       {/* Quick actions */}
       <div>
-        <h2 className="text-lg font-semibold text-white mb-3">Quick Actions</h2>
+        <h2 className="text-lg font-semibold text-[#ff1a1a] mb-3">Quick Actions</h2>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Link
-            href="/deposit"
-            className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-indigo-500/50 transition-colors"
-          >
-            <p className="font-medium text-white">Deposit</p>
-            <p className="mt-1 text-sm text-zinc-500">
-              Lock ERC20 tokens into the shielded pool
-            </p>
-          </Link>
-          <Link
-            href="/transfer"
-            className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-indigo-500/50 transition-colors"
-          >
-            <p className="font-medium text-white">Transfer</p>
-            <p className="mt-1 text-sm text-zinc-500">
-              Send tokens privately within the pool
-            </p>
-          </Link>
-          <Link
-            href="/withdraw"
-            className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 hover:border-indigo-500/50 transition-colors"
-          >
-            <p className="font-medium text-white">Withdraw</p>
-            <p className="mt-1 text-sm text-zinc-500">
-              Exit tokens from the pool to any address
-            </p>
-          </Link>
+          {[
+            {
+              href: "/deposit",
+              label: "Deposit",
+              desc: "Lock ERC20 tokens into the shielded pool",
+            },
+            {
+              href: "/transfer",
+              label: "Transfer",
+              desc: "Send tokens privately within the pool",
+            },
+            {
+              href: "/withdraw",
+              label: "Withdraw",
+              desc: "Exit tokens from the pool to any address",
+            },
+          ].map(({ href, label, desc }) => (
+            <Link
+              key={href}
+              href={href}
+              className="group rounded-lg border border-[#2a2a2a] bg-[#0d0d0d] p-4 hover:border-[#ff1a1a]/50 hover:bg-[#ff1a1a]/5 transition-all duration-200"
+            >
+              <p className="font-semibold text-[#ff1a1a]">{label}</p>
+              <p className="mt-1 text-sm text-[#888888]">{desc}</p>
+            </Link>
+          ))}
         </div>
       </div>
     </div>
