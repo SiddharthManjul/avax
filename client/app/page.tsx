@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useWallet } from "@/hooks/use-wallet";
 import { FuturisticButton } from "@/components/ui/button";
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -117,9 +118,16 @@ function Footer() {
 /*  PAGE                                                      */
 /* ────────────────────────────────────────────────────────── */
 export default function LandingPage() {
+  const [mountKey, setMountKey] = useState(0);
+
+  // Force remount of Background3D after hydration so Three.js has a real DOM element
+  useEffect(() => {
+    setMountKey((prev) => prev + 1);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-black">
-      <Background3D />
+    <div className="min-h-screen bg-black relative">
+      <Background3D key={mountKey} />
       <LandingNav />
 
       {/* Hero — full viewport */}
