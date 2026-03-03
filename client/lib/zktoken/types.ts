@@ -228,6 +228,66 @@ export interface EthersLog {
   transactionHash: string;
 }
 
+// ─── Relay (Paymaster) types ─────────────────────────────────────────────────
+
+/** Parameters for a relayed private transfer (no signer needed). */
+export interface RelayTransferParams {
+  /** ShieldedPool contract address. */
+  poolAddress: string;
+  /** EthersJS provider for Merkle tree sync (read-only). */
+  provider: EthersProvider;
+  /** Note to spend. */
+  inputNote: Note;
+  /** Amount to send to recipient. */
+  transferAmount: bigint;
+  /** Recipient's Baby Jubjub public key. */
+  recipientPublicKey: BabyJubPoint;
+  /** Sender's Baby Jubjub public key (for change note). */
+  senderPublicKey: BabyJubPoint;
+  /** Sender's Baby Jubjub private key (needed to prove ownership in circuit). */
+  senderPrivateKey: bigint;
+  /** Path to transfer.wasm (URL in browser, filesystem path in Node). */
+  wasmPath: string;
+  /** Path to transfer_final.zkey. */
+  zkeyPath: string;
+  /** Relay API URL (defaults to "/api/relay"). */
+  relayUrl?: string;
+}
+
+/** Parameters for a relayed withdrawal (no signer needed). */
+export interface RelayWithdrawParams {
+  /** ShieldedPool contract address. */
+  poolAddress: string;
+  /** EthersJS provider for Merkle tree sync (read-only). */
+  provider: EthersProvider;
+  /** Note to spend. */
+  inputNote: Note;
+  /** Amount to withdraw. */
+  withdrawAmount: bigint;
+  /** EVM recipient address for the released tokens. */
+  recipient: string;
+  /** Sender's public key (for change note if partial withdrawal). */
+  senderPublicKey: BabyJubPoint;
+  /** Sender's Baby Jubjub private key. */
+  senderPrivateKey: bigint;
+  /** Path to withdraw.wasm. */
+  wasmPath: string;
+  /** Path to withdraw_final.zkey. */
+  zkeyPath: string;
+  /** Relay API URL (defaults to "/api/relay"). */
+  relayUrl?: string;
+}
+
+/** Response from the relay API. */
+export interface RelayResponse {
+  /** Transaction hash of the relayed transaction. */
+  txHash: string;
+  /** Block number the transaction was included in. */
+  blockNumber: number;
+  /** Transaction status (1 = success). */
+  status: number;
+}
+
 // ─── ABIs ────────────────────────────────────────────────────────────────────
 // Full JSON ABIs live in ./abi/. Re-exported here for backwards compatibility.
 
@@ -235,3 +295,4 @@ export { SHIELDED_POOL_ABI } from "./abi/shielded-pool";
 export { TEST_TOKEN_ABI } from "./abi/test-token";
 export { TRANSFER_VERIFIER_ABI } from "./abi/transfer-verifier";
 export { WITHDRAW_VERIFIER_ABI } from "./abi/withdraw-verifier";
+export { PAYMASTER_ABI } from "./abi/paymaster";
