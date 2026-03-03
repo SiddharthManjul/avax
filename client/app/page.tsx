@@ -5,7 +5,14 @@ import { FuturisticButton } from "@/components/ui/button";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { BentoGrid } from "@/components/landing/BentoGrid";
 import { ScrollSections } from "@/components/landing/ScrollSections";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
+
+const Background3D = dynamic(
+  () => import("@/components/landing/Background3D").then((m) => m.Background3D),
+  { ssr: false }
+);
+
 
 /* ────────────────────────────────────────────────────────── */
 /*  LANDING NAV                                               */
@@ -112,6 +119,7 @@ function Footer() {
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-black">
+      <Background3D />
       <LandingNav />
 
       {/* Hero — full viewport */}
