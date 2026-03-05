@@ -29,6 +29,7 @@ import {
   computeNoteCommitment,
   computeNullifier,
 } from "./note";
+import { getBabyJub } from "./crypto";
 import type {
   Note,
   BabyJubPoint,
@@ -324,6 +325,79 @@ export async function generateWithdrawProof(
   if (withdrawAmount > inputNote.amount) {
     throw new Error(
       `generateWithdrawProof: withdrawAmount ${withdrawAmount} > inputNote.amount ${inputNote.amount}`
+    );
+  }
+
+  // ── Pre-flight: verify note commitment matches what circuit will compute ───
+  // The circuit derives ownerPk from owner_private_key via BabyPbk (Base8 * pk).
+  // If this doesn't match the note's ownerPublicKey, the commitment will differ.
+  const babyJub = await getBabyJub();
+  const derivedPk = babyJub.mulPointEscalar(babyJub.Base8, senderPrivateKey);
+  const derivedPkX = babyJub.F.toObject(derivedPk[0]) as bigint;
+  const derivedPkY = babyJub.F.toObject(derivedPk[1]) as bigint;
+
+  if (derivedPkX !== inputNote.ownerPublicKey[0]) {
+    console.error("[withdraw preflight] OWNER KEY MISMATCH!");
+    console.error("  derived pk.x:", derivedPkX.toString());
+    console.error("  note pk.x:   ", inputNote.ownerPublicKey[0].toString());
+    console.error("  derived pk.y:", derivedPkY.toString());
+    console.error("  note pk.y:   ", inputNote.ownerPublicKey[1].toString());
+    throw new Error(
+      "generateWithdrawProof: owner_private_key derives a different public key " +
+      "than the note's ownerPublicKey. The note may belong to a different keypair."
+    );
+  }
+
+  // Recompute Pedersen commitment from note fields
+  const recomputedPedersen = await computePedersenCommitment(inputNote.amount, inputNote.blinding);
+  if (recomputedPedersen[0] !== inputNote.pedersenCommitment[0] ||
+      recomputedPedersen[1] !== inputNote.pedersenCommitment[1]) {
+    console.error("[withdraw preflight] PEDERSEN MISMATCH!");
+    console.error("  recomputed:", recomputedPedersen[0].toString(), recomputedPedersen[1].toString());
+    console.error("  stored:    ", inputNote.pedersenCommitment[0].toString(), inputNote.pedersenCommitment[1].toString());
+    throw new Error(
+      "generateWithdrawProof: recomputed Pedersen commitment doesn't match stored value. " +
+      "Note fields (amount/blinding) may have been corrupted."
+    );
+  }
+
+  // Recompute note commitment from note fields
+  const recomputedCommitment = await computeNoteCommitment(
+    recomputedPedersen,
+    inputNote.secret,
+    inputNote.nullifierPreimage,
+    inputNote.ownerPublicKey[0]
+  );
+  if (recomputedCommitment !== inputNote.noteCommitment) {
+    console.error("[withdraw preflight] NOTE COMMITMENT MISMATCH!");
+    console.error("  recomputed:", recomputedCommitment.toString());
+    console.error("  stored:    ", inputNote.noteCommitment.toString());
+    throw new Error(
+      "generateWithdrawProof: recomputed note commitment doesn't match stored value. " +
+      "Note fields may have been corrupted during serialization."
+    );
+  }
+
+  // Verify the Merkle tree leaf at leafIndex matches our note commitment
+  if (merklePath.leafIndex !== inputNote.leafIndex) {
+    throw new Error(
+      `generateWithdrawProof: merklePath.leafIndex (${merklePath.leafIndex}) != ` +
+      `inputNote.leafIndex (${inputNote.leafIndex})`
+    );
+  }
+
+  // Recompute nullifier and verify
+  const recomputedNullifier = await computeNullifier(
+    inputNote.nullifierPreimage,
+    inputNote.secret,
+    inputNote.leafIndex
+  );
+  if (recomputedNullifier !== inputNote.nullifier) {
+    console.error("[withdraw preflight] NULLIFIER MISMATCH!");
+    console.error("  recomputed:", recomputedNullifier.toString());
+    console.error("  stored:    ", inputNote.nullifier.toString());
+    throw new Error(
+      "generateWithdrawProof: recomputed nullifier doesn't match stored value."
     );
   }
 
