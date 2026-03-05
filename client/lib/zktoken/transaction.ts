@@ -22,6 +22,8 @@ import {
   type RelayWithdrawParams,
   type RelayResponse,
   type EthersTransactionResponse,
+  type EthersTransactionRequest,
+  type EthersSigner,
   type Note,
 } from "./types";
 import { SHIELDED_POOL_ABI } from "./abi/shielded-pool";
@@ -34,6 +36,45 @@ import {
 } from "./prover";
 import { encryptMemo } from "./encryption";
 import { bytesToHex } from "./utils";
+
+// ─── Gas fee helper ──────────────────────────────────────────────────────────
+
+/**
+ * Avalanche C-Chain requires a minimum gas price. BrowserProvider sometimes
+ * fails to auto-populate fee fields, resulting in maxFeePerGas: 0 which the
+ * node rejects. This helper fetches fee data and merges it into the tx.
+ */
+async function sendWithGas(
+  signer: EthersSigner,
+  tx: EthersTransactionRequest
+): Promise<EthersTransactionResponse> {
+  // Try to get fee data from the provider
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const provider = signer.provider as any;
+  if (provider?.getFeeData) {
+    try {
+      const feeData = await provider.getFeeData();
+      if (feeData.maxFeePerGas) {
+        tx = {
+          ...tx,
+          maxFeePerGas: BigInt(feeData.maxFeePerGas),
+          maxPriorityFeePerGas: BigInt(feeData.maxPriorityFeePerGas ?? 0n),
+        };
+      } else if (feeData.gasPrice) {
+        tx = { ...tx, gasPrice: BigInt(feeData.gasPrice) };
+      }
+    } catch {
+      // Fall through to hardcoded minimum
+    }
+  }
+
+  // Ensure at least the Avalanche minimum (25 nAVAX base fee)
+  if (!tx.maxFeePerGas && !tx.gasPrice) {
+    tx = { ...tx, maxFeePerGas: 30_000_000_000n, maxPriorityFeePerGas: 2_000_000_000n };
+  }
+
+  return signer.sendTransaction(tx);
+}
 
 // ─── Deposit ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +115,7 @@ export async function deposit(
     poolAddress,
     scaledAmount,
   ]);
-  const approveTx = await signer.sendTransaction({
+  const approveTx = await sendWithGas(signer, {
     to: tokenAddress,
     data: approveData,
   });
@@ -86,7 +127,7 @@ export async function deposit(
     scaledAmount,
     pendingNote.noteCommitment,
   ]);
-  const tx = await signer.sendTransaction({
+  const tx = await sendWithGas(signer, {
     to: poolAddress,
     data: depositData,
   });
@@ -252,7 +293,7 @@ export async function transfer(
     "0x" + bytesToHex(encryptedMemo2),
   ]);
 
-  const tx = await signer.sendTransaction({ to: poolAddress, data });
+  const tx = await sendWithGas(signer, { to: poolAddress, data });
 
   return {
     tx,
@@ -305,6 +346,24 @@ export async function withdraw(
   // 1. Sync Merkle tree
   const tree = new MerkleTreeSync();
   await tree.syncFromChain(provider, poolAddress);
+
+  // Verify the tree leaf matches the note's commitment before generating proof
+  const treeLeaves = tree.getLeaves();
+  if (inputNote.leafIndex >= treeLeaves.length) {
+    throw new Error(
+      `withdraw: note leafIndex ${inputNote.leafIndex} is beyond tree size ${treeLeaves.length}.`
+    );
+  }
+  const onChainLeaf = treeLeaves[inputNote.leafIndex];
+  if (onChainLeaf !== inputNote.noteCommitment) {
+    console.error("[withdraw] MERKLE LEAF MISMATCH!");
+    console.error("  tree leaf at index", inputNote.leafIndex, ":", onChainLeaf?.toString());
+    console.error("  note commitment:", inputNote.noteCommitment.toString());
+    throw new Error(
+      `withdraw: Merkle tree leaf at index ${inputNote.leafIndex} doesn't match note commitment.`
+    );
+  }
+
   const merklePath = await tree.getMerklePath(inputNote.leafIndex);
 
   // 2. Generate proof
@@ -345,7 +404,7 @@ export async function withdraw(
     "0x" + bytesToHex(encryptedMemo),
   ]);
 
-  const tx = await signer.sendTransaction({ to: poolAddress, data });
+  const tx = await sendWithGas(signer, { to: poolAddress, data });
 
   return { tx, changeNote: proofResult.changeNote };
 }
@@ -447,10 +506,19 @@ export async function relayTransfer(
 
   const relay: RelayResponse = await res.json();
 
+  // 5. Finalize notes — re-sync tree to find the leaf indices assigned on-chain
+  const finalizedNotes = await _finalizeTransferNotes(
+    provider,
+    poolAddress,
+    proofResult.recipientNote,
+    proofResult.changeNote,
+    relay.blockNumber
+  );
+
   return {
     relay,
-    recipientNote: proofResult.recipientNote,
-    changeNote: proofResult.changeNote,
+    recipientNote: finalizedNotes.recipientNote,
+    changeNote: finalizedNotes.changeNote,
   };
 }
 
@@ -489,6 +557,26 @@ export async function relayWithdraw(
   // 1. Sync Merkle tree
   const tree = new MerkleTreeSync();
   await tree.syncFromChain(provider, poolAddress);
+
+  // Verify the tree leaf matches the note's commitment before generating proof
+  const treeLeaves = tree.getLeaves();
+  if (inputNote.leafIndex >= treeLeaves.length) {
+    throw new Error(
+      `relayWithdraw: note leafIndex ${inputNote.leafIndex} is beyond tree size ${treeLeaves.length}. ` +
+      `The Merkle tree may not be fully synced.`
+    );
+  }
+  const onChainLeaf = treeLeaves[inputNote.leafIndex];
+  if (onChainLeaf !== inputNote.noteCommitment) {
+    console.error("[relayWithdraw] MERKLE LEAF MISMATCH!");
+    console.error("  tree leaf at index", inputNote.leafIndex, ":", onChainLeaf?.toString());
+    console.error("  note commitment:", inputNote.noteCommitment.toString());
+    throw new Error(
+      `relayWithdraw: Merkle tree leaf at index ${inputNote.leafIndex} doesn't match ` +
+      `note commitment. The note may have been finalized with the wrong leafIndex.`
+    );
+  }
+
   const merklePath = await tree.getMerklePath(inputNote.leafIndex);
 
   // 2. Generate proof
@@ -543,5 +631,52 @@ export async function relayWithdraw(
 
   const relay: RelayResponse = await res.json();
 
-  return { relay, changeNote: proofResult.changeNote };
+  // 5. Finalize change note — re-sync tree to find the leaf index assigned on-chain
+  let finalizedChange = proofResult.changeNote;
+  if (finalizedChange) {
+    const postTree = new MerkleTreeSync();
+    await postTree.syncFromChain(provider, poolAddress);
+    const changeIdx = postTree.findLeafIndex(finalizedChange.noteCommitment);
+    if (changeIdx >= 0) {
+      finalizedChange = await finaliseNote(
+        { ...finalizedChange, createdAtBlock: relay.blockNumber },
+        changeIdx
+      );
+    }
+  }
+
+  return { relay, changeNote: finalizedChange };
+}
+
+// ─── Internal: finalize transfer output notes ────────────────────────────────
+
+/**
+ * After a transfer is confirmed on-chain, re-sync the Merkle tree and
+ * look up the leaf indices for the two output notes, then finalize them
+ * (compute nullifiers so they can be spent later).
+ */
+async function _finalizeTransferNotes(
+  provider: import("./types").EthersProvider,
+  poolAddress: string,
+  recipientNote: Note,
+  changeNote: Note,
+  blockNumber: number
+): Promise<{ recipientNote: Note; changeNote: Note }> {
+  const postTree = new MerkleTreeSync();
+  await postTree.syncFromChain(provider, poolAddress);
+
+  const recipientIdx = postTree.findLeafIndex(recipientNote.noteCommitment);
+  const changeIdx = postTree.findLeafIndex(changeNote.noteCommitment);
+
+  const finalRecipient =
+    recipientIdx >= 0
+      ? await finaliseNote({ ...recipientNote, createdAtBlock: blockNumber }, recipientIdx)
+      : recipientNote;
+
+  const finalChange =
+    changeIdx >= 0
+      ? await finaliseNote({ ...changeNote, createdAtBlock: blockNumber }, changeIdx)
+      : changeNote;
+
+  return { recipientNote: finalRecipient, changeNote: finalChange };
 }
