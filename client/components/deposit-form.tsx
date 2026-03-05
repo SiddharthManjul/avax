@@ -29,6 +29,7 @@ export function DepositForm() {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [recovering, setRecovering] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   // Count notes that are stuck pending finalization
   const pendingNotes = notes.filter((n) => n.leafIndex < 0);
@@ -67,7 +68,7 @@ export function DepositForm() {
       );
       saveNote(finalizedNote);
 
-      setStatus(`✓ Deposit confirmed! Leaf #${finalizedNote.leafIndex} — ready to transfer.`);
+      setStatus(`Deposit confirmed! Leaf #${finalizedNote.leafIndex} — ready to transfer.`);
       setAmount("");
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -75,8 +76,6 @@ export function DepositForm() {
   };
 
   // Recovery: sync the full Merkle tree and find leaf indices for stuck notes.
-  // Notes can come from Deposit, PrivateTransfer, or Withdrawal events —
-  // we use MerkleTreeSync which replays ALL event types in order.
   const handleRecoverNotes = async () => {
     if (!provider || pendingNotes.length === 0) return;
     setRecovering(true);
@@ -98,23 +97,72 @@ export function DepositForm() {
           const finalized = await finaliseNote(note, leafIndex);
           saveNote(finalized);
           recovered++;
-        } else {
-          console.log(
-            `[recovery] no match for local commitment 0x${note.noteCommitment.toString(16).padStart(64, "0")}`
-          );
         }
       }
 
       setStatus(
         recovered > 0
           ? `Recovered ${recovered} note(s)! They are now ready to use.`
-          : `No matching commitments found in ${tree.size} on-chain leaves. ` +
-            `The notes may have been created with different parameters.`
+          : `No matching commitments found in ${tree.size} on-chain leaves.`
       );
     } catch (err) {
       setStatus(`Recovery error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setRecovering(false);
+    }
+  };
+
+  // Scan for incoming notes via memo trial decryption
+  const handleScanNotes = async () => {
+    if (!provider) return;
+    setScanning(true);
+    setStatus("Scanning on-chain events for incoming notes...");
+
+    try {
+      let kp = keypair;
+      if (!kp) {
+        setStatus("Sign the message in your wallet to derive your shielded key...");
+        kp = await deriveKey();
+        if (!kp) throw new Error("Failed to derive shielded key");
+      }
+
+      const { scanChainForNotes } = await import("@/lib/zktoken/transaction");
+
+      // Build set of existing note nullifiers to skip duplicates
+      const existingNullifiers = new Set(
+        notes.map((n) => n.nullifier.toString())
+      );
+
+      const discovered = await scanChainForNotes({
+        provider: provider as never,
+        poolAddress: POOL_ADDRESS,
+        myPrivateKey: kp.privateKey,
+        myPublicKey: kp.publicKey,
+        tokenAddress: TOKEN_ADDRESS,
+        existingNullifiers,
+      });
+
+      // Also filter out notes whose noteCommitment we already have
+      const existingCommitments = new Set(
+        notes.map((n) => n.noteCommitment.toString())
+      );
+      const newNotes = discovered.filter(
+        (n) => !existingCommitments.has(n.noteCommitment.toString())
+      );
+
+      for (const note of newNotes) {
+        saveNote(note);
+      }
+
+      setStatus(
+        newNotes.length > 0
+          ? `Found ${newNotes.length} new note(s)! Total: ${newNotes.reduce((s, n) => s + n.amount, 0n).toString()} SRD`
+          : "No new incoming notes found."
+      );
+    } catch (err) {
+      setStatus(`Scan error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -148,6 +196,18 @@ export function DepositForm() {
         {!address ? "Connect wallet first" : !ready ? "Initializing..." : "Deposit"}
       </button>
 
+      {/* Scan for incoming notes — always available when connected */}
+      {address && provider && (
+        <button
+          type="button"
+          onClick={handleScanNotes}
+          disabled={scanning}
+          className={btnSecondary}
+        >
+          {scanning ? "Scanning chain..." : "Scan for Incoming Notes"}
+        </button>
+      )}
+
       {/* Recovery button — only shown when there are stuck notes */}
       {pendingNotes.length > 0 && provider && (
         <button
@@ -158,7 +218,7 @@ export function DepositForm() {
         >
           {recovering
             ? "Scanning chain..."
-            : `⚠ Recover ${pendingNotes.length} unfinalized note${pendingNotes.length > 1 ? "s" : ""}`}
+            : `Recover ${pendingNotes.length} unfinalized note${pendingNotes.length > 1 ? "s" : ""}`}
         </button>
       )}
 
