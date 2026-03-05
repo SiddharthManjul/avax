@@ -34,8 +34,9 @@ import {
   generateTransferProof,
   generateWithdrawProof,
 } from "./prover";
-import { encryptMemo } from "./encryption";
-import { bytesToHex } from "./utils";
+import { encryptMemo, decryptMemo, type MemoEvent } from "./encryption";
+import { noteFromMemoData } from "./note";
+import { bytesToHex, hexToBytes } from "./utils";
 
 // ─── Gas fee helper ──────────────────────────────────────────────────────────
 
@@ -106,10 +107,11 @@ export async function deposit(
   // Note stores whole token amount (fits in uint64 for circuit range proofs)
   const pendingNote = await createNote(amount, ownerPublicKey, tokenAddress);
 
-  // ERC20 uses 18 decimals
+  // The ShieldedPool contract scales by AMOUNT_SCALE (1e18) internally.
+  // Approve the scaled amount so the contract's transferFrom succeeds.
   const scaledAmount = amount * 10n ** 18n;
 
-  // 2. Approve token transfer
+  // 2. Approve token transfer (must approve the scaled amount)
   const erc20Iface = new Interface(TEST_TOKEN_ABI);
   const approveData = erc20Iface.encodeFunctionData("approve", [
     poolAddress,
@@ -121,10 +123,10 @@ export async function deposit(
   });
   await approveTx.wait();
 
-  // 3. Deposit into pool
+  // 3. Deposit into pool — pass unscaled amount (contract scales internally)
   const poolIface = new Interface(SHIELDED_POOL_ABI);
   const depositData = poolIface.encodeFunctionData("deposit", [
-    scaledAmount,
+    amount,
     pendingNote.noteCommitment,
   ]);
   const tx = await sendWithGas(signer, {
@@ -679,4 +681,141 @@ async function _finalizeTransferNotes(
       : changeNote;
 
   return { recipientNote: finalRecipient, changeNote: finalChange };
+}
+
+// ─── Scan chain for incoming notes (memo trial decryption) ────────────────
+
+/** DEPLOY_BLOCK for the current pool contract. */
+const SCAN_DEPLOY_BLOCK = 52396103;
+const SCAN_CHUNK_SIZE = 2048;
+
+/**
+ * Scan on-chain events for notes addressed to the given private key.
+ *
+ * Replays PrivateTransfer and Withdrawal events, extracts encrypted memos,
+ * and attempts trial decryption with the user's Baby Jubjub private key.
+ * Successfully decrypted memos are reconstructed into full Note objects.
+ *
+ * @returns Array of discovered notes (already finalized with leafIndex + nullifier).
+ */
+export async function scanChainForNotes(params: {
+  provider: import("./types").EthersProvider;
+  poolAddress: string;
+  myPrivateKey: bigint;
+  myPublicKey: import("./types").BabyJubPoint;
+  tokenAddress: string;
+  existingNullifiers?: Set<string>;
+}): Promise<Note[]> {
+  const { provider, poolAddress, myPrivateKey, myPublicKey, tokenAddress, existingNullifiers } = params;
+
+  const iface = new Interface(SHIELDED_POOL_ABI);
+  const depositTopic = iface.getEvent("Deposit")!.topicHash;
+  const transferTopic = iface.getEvent("PrivateTransfer")!.topicHash;
+  const withdrawalTopic = iface.getEvent("Withdrawal")!.topicHash;
+  const topics = [[depositTopic, transferTopic, withdrawalTopic]];
+
+  const latestBlock = await provider.getBlockNumber();
+  const allLogs: { topics: string[]; data: string; blockNumber: number; logIndex?: number }[] = [];
+
+  for (let start = SCAN_DEPLOY_BLOCK; start <= latestBlock; start += SCAN_CHUNK_SIZE) {
+    const end = Math.min(start + SCAN_CHUNK_SIZE - 1, latestBlock);
+    const chunk = await provider.getLogs({
+      address: poolAddress,
+      topics,
+      fromBlock: start,
+      toBlock: end,
+    });
+    allLogs.push(...chunk);
+  }
+
+  allLogs.sort((a, b) => {
+    if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+    return (a.logIndex ?? 0) - (b.logIndex ?? 0);
+  });
+
+  // Replay events to track leaf indices AND collect memo events
+  let leafIndex = 0;
+  const memoEvents: Array<{
+    memoBytes: Uint8Array;
+    commitment: bigint;
+    leafIndex: number;
+    blockNumber: number;
+  }> = [];
+
+  for (const log of allLogs) {
+    const topic = log.topics[0];
+    if (topic === depositTopic) {
+      // Deposit inserts 1 leaf, no encrypted memo
+      leafIndex++;
+    } else if (topic === transferTopic) {
+      const parsed = iface.parseLog(log);
+      if (parsed) {
+        const commitment1 = parsed.args["commitment1"] as bigint;
+        const commitment2 = parsed.args["commitment2"] as bigint;
+        const memo1Hex = parsed.args["encryptedMemo1"] as string;
+        const memo2Hex = parsed.args["encryptedMemo2"] as string;
+
+        // commitment1 gets leafIndex, commitment2 gets leafIndex+1
+        if (memo1Hex && memo1Hex.length > 2) {
+          memoEvents.push({
+            memoBytes: hexToBytes(memo1Hex.slice(2)),
+            commitment: commitment1,
+            leafIndex: leafIndex,
+            blockNumber: log.blockNumber,
+          });
+        }
+        if (memo2Hex && memo2Hex.length > 2) {
+          memoEvents.push({
+            memoBytes: hexToBytes(memo2Hex.slice(2)),
+            commitment: commitment2,
+            leafIndex: leafIndex + 1,
+            blockNumber: log.blockNumber,
+          });
+        }
+        leafIndex += 2;
+      }
+    } else if (topic === withdrawalTopic) {
+      const parsed = iface.parseLog(log);
+      if (parsed) {
+        const changeCommitment = parsed.args["changeCommitment"] as bigint;
+        const memoHex = parsed.args["encryptedMemo"] as string;
+
+        if (changeCommitment !== 0n) {
+          if (memoHex && memoHex.length > 2) {
+            memoEvents.push({
+              memoBytes: hexToBytes(memoHex.slice(2)),
+              commitment: changeCommitment,
+              leafIndex: leafIndex,
+              blockNumber: log.blockNumber,
+            });
+          }
+          leafIndex++;
+        }
+      }
+    }
+  }
+
+  // Trial-decrypt all memos
+  const discoveredNotes: Note[] = [];
+
+  for (const event of memoEvents) {
+    const memoData = await decryptMemo(event.memoBytes, myPrivateKey);
+    if (memoData === null) continue;
+
+    // Skip if we already have this note
+    const note = await noteFromMemoData(
+      memoData,
+      myPublicKey,
+      tokenAddress,
+      event.leafIndex,
+      event.blockNumber
+    );
+
+    // Skip notes we already know about
+    if (existingNullifiers?.has(note.nullifier.toString())) continue;
+
+    discoveredNotes.push(note);
+  }
+
+  return discoveredNotes;
 }
