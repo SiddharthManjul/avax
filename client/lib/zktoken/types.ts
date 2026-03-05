@@ -202,6 +202,9 @@ export interface EthersTransactionRequest {
   to?: string;
   data?: string;
   value?: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
+  gasPrice?: bigint;
 }
 
 export interface EthersTransactionResponse {
