@@ -26,7 +26,7 @@ import { SHIELDED_POOL_ABI } from "./abi/shielded-pool";
 export const TREE_DEPTH = 20;
 
 /** ShieldedPool deployment block on Fuji — skip scanning older blocks. */
-const DEPLOY_BLOCK = 52250867;
+const DEPLOY_BLOCK = 52396103;
 
 /** Max block range per getLogs request (Avalanche RPCs cap at 2048). */
 const LOG_CHUNK_SIZE = 2048;
