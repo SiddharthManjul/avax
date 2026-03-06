@@ -1,0 +1,53 @@
+type MerkleLeaf @entity {
+  id: ID!
+  commitment: BigInt! @index
+  leafIndex: Int! @index
+  blockNumber: Int!
+  blockTimestamp: Int!
+  transactionHash: String!
+  logIndex: Int!
+  eventType: String!
+}
+
+type DepositEvent @entity {
+  id: ID!
+  commitment: BigInt! @index
+  leafIndex: Int!
+  timestamp: BigInt!
+  blockNumber: Int!
+  transactionHash: String!
+}
+
+type TransferEvent @entity {
+  id: ID!
+  nullifierHash: BigInt! @index
+  commitment1: BigInt!
+  commitment2: BigInt!
+  encryptedMemo1: String!
+  encryptedMemo2: String!
+  leafIndex1: Int!
+  leafIndex2: Int!
+  blockNumber: Int!
+  transactionHash: String!
+}
+
+type WithdrawalEvent @entity {
+  id: ID!
+  nullifierHash: BigInt! @index
+  recipient: String! @index
+  amount: BigInt!
+  changeCommitment: BigInt!
+  encryptedMemo: String!
+  changeLeafIndex: Int!
+  blockNumber: Int!
+  transactionHash: String!
+}
+
+type PoolState @entity {
+  id: ID!
+  nextLeafIndex: Int!
+  totalDeposits: Int!
+  totalTransfers: Int!
+  totalWithdrawals: Int!
+  lastIndexedBlock: Int!
+}
