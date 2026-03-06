@@ -6,6 +6,10 @@ import { NoteStore, encodeNote, decodeNote } from "@/lib/zktoken/note";
 import { useShieldedKey } from "./use-shielded-key";
 
 const STORAGE_PREFIX = "zktoken_notes_";
+const SCAN_BLOCK_KEY = "zktoken_last_scan_block";
+
+const TOKEN_ADDRESS = process.env.NEXT_PUBLIC_TOKEN_ADDRESS ?? "";
+const POOL_ADDRESS = process.env.NEXT_PUBLIC_SHIELDED_POOL_ADDRESS ?? "";
 
 /** Derive the localStorage key for a given shielded public key. */
 function storageKeyFor(pkX: bigint): string {
@@ -14,16 +18,23 @@ function storageKeyFor(pkX: bigint): string {
 
 /**
  * Hook that wraps NoteStore with localStorage persistence.
- * Notes are scoped per shielded key — different users on the same browser
- * have separate note stores.
+ *
+ * Note discovery priority:
+ *   1. Notification relay (instant — sender posted encrypted notification)
+ *   2. Indexer trial decryption (fast — queries indexed events, not RPC)
+ *   3. Chain scanning fallback (slow — only if relay + indexer both fail)
+ *
+ * localStorage is a cache, not the source of truth. Notes can always be
+ * recovered from on-chain encrypted memos.
  */
 export function useNotes() {
   const storeRef = useRef(new NoteStore());
   const [notes, setNotes] = useState<Note[]>([]);
+  const [loading, setLoading] = useState(false);
   const { keypair } = useShieldedKey();
   const currentKeyRef = useRef<string | null>(null);
 
-  // Hydrate from localStorage when keypair changes
+  // Hydrate from localStorage cache when keypair changes
   useEffect(() => {
     storeRef.current.clear();
 
@@ -45,18 +56,16 @@ export function useNotes() {
         }
       }
 
-      // Migrate: also load old global key if it exists (one-time migration)
+      // Migrate old global key (one-time)
       const oldRaw = localStorage.getItem("zktoken_notes");
       if (oldRaw) {
         const oldArr = JSON.parse(oldRaw) as string[];
         for (const json of oldArr) {
           const note = decodeNote(json);
-          // Only import notes that belong to this user (matching ownerPublicKey)
           if (note.ownerPublicKey[0] === keypair.publicKey[0]) {
             storeRef.current.save(note);
           }
         }
-        // Don't delete old key yet — other users may need their notes migrated too
       }
 
       setNotes(storeRef.current.getAll());
@@ -104,12 +113,109 @@ export function useNotes() {
     setNotes([]);
   }, []);
 
+  /**
+   * Refresh notes using the 3-tier discovery strategy:
+   *   1. Notification relay (instant)
+   *   2. Indexer scan (fast)
+   *   3. Chain scan (slow fallback)
+   */
+  const refreshNotes = useCallback(async () => {
+    if (!keypair) return;
+    setLoading(true);
+
+    const existingCommitments = new Set(
+      storeRef.current.getAll().map((n) => n.noteCommitment.toString())
+    );
+
+    let foundNew = false;
+
+    try {
+      // Tier 1: Check notification relay (instant)
+      try {
+        const { scanNotesFromRelay } = await import("@/lib/zktoken/transaction");
+        const relayNotes = await scanNotesFromRelay({
+          myPrivateKey: keypair.privateKey,
+          myPublicKey: keypair.publicKey,
+          tokenAddress: TOKEN_ADDRESS,
+          existingCommitments,
+        });
+        for (const note of relayNotes) {
+          storeRef.current.save(note);
+          existingCommitments.add(note.noteCommitment.toString());
+          foundNew = true;
+        }
+      } catch (err) {
+        console.warn("[use-notes] Relay check failed:", err);
+      }
+
+      // Tier 2: Indexer scan (for anything the relay missed)
+      try {
+        const lastBlock = parseInt(localStorage.getItem(SCAN_BLOCK_KEY) ?? "0");
+        const { scanNotesFromIndexer } = await import("@/lib/zktoken/transaction");
+        const indexerNotes = await scanNotesFromIndexer({
+          myPrivateKey: keypair.privateKey,
+          myPublicKey: keypair.publicKey,
+          tokenAddress: TOKEN_ADDRESS,
+          existingCommitments,
+          afterBlock: lastBlock,
+        });
+        for (const note of indexerNotes) {
+          storeRef.current.save(note);
+          existingCommitments.add(note.noteCommitment.toString());
+          foundNew = true;
+        }
+
+        // Update scan checkpoint
+        const { fetchPoolState } = await import("@/lib/zktoken/indexer");
+        const state = await fetchPoolState();
+        localStorage.setItem(SCAN_BLOCK_KEY, state.lastIndexedBlock.toString());
+      } catch (err) {
+        console.warn("[use-notes] Indexer scan failed, falling back to chain:", err);
+
+        // Tier 3: Full chain scan (slow fallback)
+        try {
+          const { scanChainForNotes } = await import("@/lib/zktoken/transaction");
+          const { JsonRpcProvider } = await import("ethers");
+          const provider = new JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL);
+
+          const chainNotes = await scanChainForNotes({
+            provider: provider as never,
+            poolAddress: POOL_ADDRESS,
+            myPrivateKey: keypair.privateKey,
+            myPublicKey: keypair.publicKey,
+            tokenAddress: TOKEN_ADDRESS,
+            existingNullifiers: new Set(
+              storeRef.current.getAll().map((n) => n.nullifier.toString())
+            ),
+          });
+
+          for (const note of chainNotes) {
+            if (!existingCommitments.has(note.noteCommitment.toString())) {
+              storeRef.current.save(note);
+              foundNew = true;
+            }
+          }
+        } catch (chainErr) {
+          console.warn("[use-notes] Chain scan also failed:", chainErr);
+        }
+      }
+
+      if (foundNew) {
+        persist();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [keypair, persist]);
+
   return {
     notes,
     unspent: notes.filter((n) => !n.spent),
+    loading,
     saveNote,
     markSpent,
     getUnspent,
     clearAll,
+    refreshNotes,
   };
 }
