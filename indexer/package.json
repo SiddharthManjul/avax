@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "envio dev",
     "codegen": "envio codegen",
-    "start": "envio start"
+    "dev": "envio dev",
+    "start": "envio start",
+    "stop": "envio stop"
   },
   "dependencies": {
-    "envio": "^2.0.0"
+    "envio": "^2.21.5"
   },
   "devDependencies": {
     "typescript": "^5"

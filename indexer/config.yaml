@@ -1,13 +1,17 @@
 name: zktoken-indexer
 description: Indexes ShieldedPool events for the zkToken privacy system
+
+contracts:
+  - name: ShieldedPool
+    handler: src/EventHandlers.ts
+    events:
+      - event: "Deposit(uint256 indexed commitment, uint32 leafIndex, uint256 timestamp)"
+      - event: "PrivateTransfer(uint256 nullifierHash, uint256 commitment1, uint256 commitment2, bytes encryptedMemo1, bytes encryptedMemo2)"
+      - event: "Withdrawal(uint256 nullifierHash, address indexed recipient, uint256 amount, uint256 changeCommitment, bytes encryptedMemo)"
+
 networks:
   - id: 43113
     start_block: 52396103
     contracts:
       - name: ShieldedPool
         address: "0x04242Fe217110C7F92eb7372547ECfd7897b0D01"
-        handler: src/EventHandlers.ts
-        events:
-          - event: "Deposit(uint256 indexed commitment, uint32 leafIndex, uint256 timestamp)"
-          - event: "PrivateTransfer(uint256 nullifierHash, uint256 commitment1, uint256 commitment2, bytes encryptedMemo1, bytes encryptedMemo2)"
-          - event: "Withdrawal(uint256 nullifierHash, address indexed recipient, uint256 amount, uint256 changeCommitment, bytes encryptedMemo)"
