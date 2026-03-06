@@ -3,6 +3,7 @@
 import { ZkTokenProvider } from "@/providers/zktoken-provider";
 import { WalletProvider } from "@/providers/wallet-provider";
 import { Nav } from "@/components/nav";
+import { VaultGate } from "@/components/vault-gate";
 import { useWallet } from "@/hooks/use-wallet";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
@@ -40,7 +41,9 @@ function AppShell({ children }: { children: ReactNode }) {
       {isLanding ? (
         <>{children}</>
       ) : (
-        <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        <main className="mx-auto max-w-5xl px-4 py-8">
+          <VaultGate>{children}</VaultGate>
+        </main>
       )}
     </>
   );
