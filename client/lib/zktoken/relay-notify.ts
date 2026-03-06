@@ -12,7 +12,9 @@
  */
 
 import { getPoseidon } from "./crypto";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { encryptMemo, decryptMemo } from "./encryption";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { BabyJubPoint, NoteMemoData } from "./types";
 import { bytesToHex, hexToBytes } from "./utils";
 
