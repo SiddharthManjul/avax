@@ -262,6 +262,23 @@ export class MerkleTreeSync {
     }
   }
 
+  // ── Indexer sync ─────────────────────────────────────────────────────────
+
+  /**
+   * Reconstruct the local tree from the Envio indexer instead of RPC scanning.
+   * Falls back to syncFromChain() if the indexer is unavailable.
+   *
+   * @param afterLeafIndex Start syncing from this leaf index (for incremental sync).
+   */
+  async syncFromIndexer(afterLeafIndex = -1): Promise<void> {
+    await this.init();
+    const { fetchMerkleLeaves } = await import("./indexer");
+    const leaves = await fetchMerkleLeaves(afterLeafIndex);
+    for (const leaf of leaves) {
+      await this.insert(leaf.commitment);
+    }
+  }
+
   /**
    * Verify a Merkle path against a known root.
    * Useful for sanity-checking a path before proof generation.
