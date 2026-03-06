@@ -149,6 +149,7 @@ export function useNotes() {
       }
 
       // Tier 2: Indexer scan (for anything the relay missed)
+      let indexerWorked = false;
       try {
         const lastBlock = parseInt(localStorage.getItem(SCAN_BLOCK_KEY) ?? "0");
         const { scanNotesFromIndexer } = await import("@/lib/zktoken/transaction");
@@ -165,14 +166,20 @@ export function useNotes() {
           foundNew = true;
         }
 
-        // Update scan checkpoint
+        // Update scan checkpoint — only if indexer returned data
         const { fetchPoolState } = await import("@/lib/zktoken/indexer");
         const state = await fetchPoolState();
-        localStorage.setItem(SCAN_BLOCK_KEY, state.lastIndexedBlock.toString());
+        if (state.lastIndexedBlock > 0) {
+          localStorage.setItem(SCAN_BLOCK_KEY, state.lastIndexedBlock.toString());
+          indexerWorked = true;
+        }
       } catch (err) {
-        console.warn("[use-notes] Indexer scan failed, falling back to chain:", err);
+        console.warn("[use-notes] Indexer scan failed:", err);
+      }
 
-        // Tier 3: Full chain scan (slow fallback)
+      // Tier 3: Chain scan — runs if indexer failed OR returned no data and we have no notes
+      if (!indexerWorked && storeRef.current.getAll().length === 0) {
+        console.log("[use-notes] Falling back to chain scan...");
         try {
           const { scanChainForNotes } = await import("@/lib/zktoken/transaction");
           const { JsonRpcProvider } = await import("ethers");
