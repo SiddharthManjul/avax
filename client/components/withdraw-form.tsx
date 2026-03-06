@@ -26,7 +26,7 @@ export function WithdrawForm() {
   const { ready } = useZkToken();
   const { address, provider } = useWallet();
   const { unspent, saveNote, markSpent } = useNotes();
-  const { keypair, deriving, deriveKey } = useShieldedKey();
+  const { keypair, deriveKey } = useShieldedKey();
   const [selectedNoteIdx, setSelectedNoteIdx] = useState<number>(-1);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
@@ -150,17 +150,6 @@ export function WithdrawForm() {
           className={inputClass}
         />
       </div>
-
-      {!keypair && address && (
-        <button
-          type="button"
-          onClick={deriveKey}
-          disabled={deriving}
-          className={btnSecondary}
-        >
-          {deriving ? "Signing..." : "Derive Shielded Key (one-time)"}
-        </button>
-      )}
 
       <ProofStatus generating={generating} />
 

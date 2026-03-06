@@ -25,7 +25,7 @@ export function DepositForm() {
   const { ready } = useZkToken();
   const { address, signer, provider } = useWallet();
   const { notes, saveNote } = useNotes();
-  const { keypair, deriving, deriveKey } = useShieldedKey();
+  const { keypair, deriveKey } = useShieldedKey();
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [recovering, setRecovering] = useState(false);
@@ -181,18 +181,7 @@ export function DepositForm() {
         />
       </div>
 
-      {!keypair && address && (
-        <button
-          type="button"
-          onClick={deriveKey}
-          disabled={deriving}
-          className={btnSecondary}
-        >
-          {deriving ? "Signing..." : "Derive Shielded Key (one-time)"}
-        </button>
-      )}
-
-      <button type="submit" disabled={!ready || !address} className={btnPrimary}>
+      <button type="submit" disabled={!ready || !address || !keypair} className={btnPrimary}>
         {!address ? "Connect wallet first" : !ready ? "Initializing..." : "Deposit"}
       </button>
 
