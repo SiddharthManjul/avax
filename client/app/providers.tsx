@@ -3,6 +3,7 @@
 import { ZkTokenProvider } from "@/providers/zktoken-provider";
 import { WalletProvider } from "@/providers/wallet-provider";
 import { ShieldedKeyProvider } from "@/providers/shielded-key-provider";
+import { TokenProvider } from "@/providers/token-provider";
 import { Nav } from "@/components/nav";
 import { VaultGate } from "@/components/vault-gate";
 import { useWallet } from "@/hooks/use-wallet";
@@ -11,7 +12,7 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 const LANDING = "/";
-const APP_PATHS = ["/dashboard", "/deposit", "/transfer", "/withdraw", "/notes", "/faucet"];
+const APP_PATHS = ["/dashboard", "/deposit", "/transfer", "/withdraw", "/notes", "/pools", "/faucet"];
 
 /** Watches wallet state and handles redirects between landing / app */
 function WalletRedirect() {
@@ -54,9 +55,11 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WalletProvider>
       <ShieldedKeyProvider>
-        <ZkTokenProvider>
-          <AppShell>{children}</AppShell>
-        </ZkTokenProvider>
+        <TokenProvider>
+          <ZkTokenProvider>
+            <AppShell>{children}</AppShell>
+          </ZkTokenProvider>
+        </TokenProvider>
       </ShieldedKeyProvider>
     </WalletProvider>
   );
