@@ -142,7 +142,8 @@ contract PaymasterTest is Test {
             address(token),
             address(transferVerifier),
             address(withdrawVerifier),
-            address(poseidon)
+            address(poseidon),
+            1e18
         );
 
         vm.prank(deployer);
