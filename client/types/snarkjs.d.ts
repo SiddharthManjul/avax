@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module "snarkjs" {
   export const groth16: {
     fullProve(

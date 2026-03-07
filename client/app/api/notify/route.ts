@@ -38,6 +38,7 @@ type NotificationEntry = {
 type NotificationStore = Record<string, NotificationEntry[]>;
 
 function ensureDataDir(): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { mkdirSync } = require("fs");
   try {
     mkdirSync(DATA_DIR, { recursive: true });
