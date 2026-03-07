@@ -438,6 +438,7 @@ export async function relayTransfer(
     wasmPath,
     zkeyPath,
     relayUrl = "/api/relay",
+    paymasterAddress,
   } = params;
 
   if (inputNote.spent) throw new Error("relayTransfer: inputNote is already spent");
@@ -493,6 +494,7 @@ export async function relayTransfer(
     newCommitment2: newCommitment2.toString(),
     encryptedMemo1: "0x" + bytesToHex(encryptedMemo1),
     encryptedMemo2: "0x" + bytesToHex(encryptedMemo2),
+    ...(paymasterAddress ? { paymasterAddress } : {}),
   };
 
   const res = await fetch(relayUrl, {
@@ -558,6 +560,7 @@ export async function relayWithdraw(
     wasmPath,
     zkeyPath,
     relayUrl = "/api/relay",
+    paymasterAddress,
   } = params;
 
   if (inputNote.spent) throw new Error("relayWithdraw: inputNote is already spent");
@@ -630,6 +633,7 @@ export async function relayWithdraw(
     changeCommitment: changeCommitment.toString(),
     recipient,
     encryptedMemo: encryptedMemoHex,
+    ...(paymasterAddress ? { paymasterAddress } : {}),
   };
 
   const res = await fetch(relayUrl, {
