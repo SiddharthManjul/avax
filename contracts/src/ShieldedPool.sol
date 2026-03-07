@@ -50,7 +50,8 @@ contract ShieldedPool {
     ///         whole-token amounts (e.g. 500) to fit within the 64-bit range
     ///         proof. On-chain ERC20 transfers multiply by this scale factor
     ///         (e.g. 500 * 1e18 = 500 tokens with 18 decimals).
-    uint256 public constant AMOUNT_SCALE = 1e18;
+    ///         Set to 10^decimals of the wrapped ERC20 at deploy time.
+    uint256 public immutable amountScale;
 
     /// @notice Groth16 verifier for the transfer circuit (4 public signals).
     IVerifier public immutable transferVerifier;
@@ -121,12 +122,14 @@ contract ShieldedPool {
      * @param _transferVerifier Deployed Groth16VerifierTransfer address.
      * @param _withdrawVerifier Deployed Groth16VerifierWithdraw address.
      * @param _poseidon        Deployed Poseidon(2) contract (must match circuit params).
+     * @param _amountScale     Scaling factor = 10^decimals of the wrapped ERC20.
      */
     constructor(
         address _token,
         address _transferVerifier,
         address _withdrawVerifier,
-        address _poseidon
+        address _poseidon,
+        uint256 _amountScale
     ) {
         require(_token != address(0), "ShieldedPool: zero token");
         require(
@@ -138,10 +141,12 @@ contract ShieldedPool {
             "ShieldedPool: zero withdraw verifier"
         );
         require(_poseidon != address(0), "ShieldedPool: zero poseidon");
+        require(_amountScale > 0, "ShieldedPool: zero scale");
 
         token = IERC20(_token);
         transferVerifier = IVerifier(_transferVerifier);
         withdrawVerifier = IVerifier(_withdrawVerifier);
+        amountScale = _amountScale;
 
         _tree.init(_poseidon);
     }
@@ -167,7 +172,7 @@ contract ShieldedPool {
         require(commitment != 0, "ShieldedPool: zero commitment");
 
         // Pull tokens — amount is in whole-token units, scale to ERC20 decimals
-        bool ok = token.transferFrom(msg.sender, address(this), amount * AMOUNT_SCALE);
+        bool ok = token.transferFrom(msg.sender, address(this), amount * amountScale);
         require(ok, "ShieldedPool: transferFrom failed");
 
         // Insert commitment into the Merkle tree
@@ -308,7 +313,7 @@ contract ShieldedPool {
         }
 
         // ── Release tokens (last operation) — scale to ERC20 decimals ─────
-        bool ok = token.transfer(recipient, amount * AMOUNT_SCALE);
+        bool ok = token.transfer(recipient, amount * amountScale);
         require(ok, "ShieldedPool: transfer failed");
 
         emit Withdrawal(
